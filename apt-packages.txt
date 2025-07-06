@@ -1,0 +1,10 @@
+libmupdf-dev
+swig
+libjpeg-dev
+libfreetype6-dev
+libharfbuzz-dev
+zlib1g-dev
+libjbig2dec0-dev
+libopenjp2-7-dev
+libxrender-dev
+libcairo2-dev
