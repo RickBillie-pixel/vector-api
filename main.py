@@ -115,7 +115,7 @@ class UrlRequest(BaseModel):
 app = FastAPI(
     title="Vector Extraction API",
     description="Extracts raw vector data, text, and viewports from PDF files or URLs",
-    version="4.7.0",
+    version="4.8.0",
 )
 
 @app.exception_handler(Exception)
@@ -127,12 +127,12 @@ async def custom_exception_handler(request, exc: Exception):
         content={"detail": "Internal Server Error"}
     )
 
-def extract_vectors(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
+def extract_vectors(data: bytes, filename: str) -> Dict[str, Any]:
     """Extract raw vector data, text, and viewports from PDF"""
     start_time = time.time()
 
     try:
-        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+        pdf_document = fitz.open(stream=data, filetype="pdf")
         if len(pdf_document) == 0:
             raise ValueError("PDF contains no pages")
 
@@ -146,7 +146,7 @@ def extract_vectors(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
                 "total_curves": 0,
                 "total_texts": 0,
                 "total_viewports": 0,
-                "file_size_mb": round(len(pdf_bytes) / (1024 * 1024), 2),
+                "file_size_mb": round(len(data) / (1024 * 1024), 2),
                 "processing_time_ms": 0
             }
         }
@@ -300,7 +300,7 @@ async def extract_vectors(file: UploadFile = File(...)):
         if not pdf_bytes:
             raise ValueError("Empty PDF file")
 
-        return extract_vectors(pdf_bytes=pdf_bytes, filename=file.filename)
+        return extract_vectors(data=pdf_bytes, filename=file.filename)
 
     except Exception as e:
         logger.error(f"Error during vector extraction: {e}", exc_info=True)
@@ -328,7 +328,7 @@ async def extract_vectors_from_urls(urls: List[UrlRequest]):
                 logger.warning(f"Page {url_request.page_number} does not exist in PDF from URL: {url_request.url}")
                 continue
 
-            output = extract_vectors(pdf_bytes=pdf_bytes, filename=str(url_request.url))
+            output = extract_vectors(data=pdf_bytes, filename=str(url_request.url))
             output = {
                 "url": str(url_request.url),
                 "page_number": url_request.page_number,
@@ -381,7 +381,7 @@ async def root():
     """Root endpoint"""
     return {
         "message": "Vector Extraction API - Pure Data Extraction",
-        "version": "4.7.0",
+        "version": "4.8.0",
         "endpoints": {
             "/extract-vectors/": "Extract raw vector data and viewports from PDF file",
             "/extract-vectors-from-urls/": "Extract raw vector data and viewports from PDF URLs",
