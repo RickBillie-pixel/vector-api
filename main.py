@@ -115,7 +115,7 @@ class UrlRequest(BaseModel):
 app = FastAPI(
     title="Vector Extraction API",
     description="Extracts raw vector data, text, and viewports from PDF files or URLs",
-    version="4.6.0",
+    version="4.7.0",
 )
 
 @app.exception_handler(Exception)
@@ -381,7 +381,7 @@ async def root():
     """Root endpoint"""
     return {
         "message": "Vector Extraction API - Pure Data Extraction",
-        "version": "4.6.0",
+        "version": "4.7.0",
         "endpoints": {
             "/extract-vectors/": "Extract raw vector data and viewports from PDF file",
             "/extract-vectors-from-urls/": "Extract raw vector data and viewports from PDF URLs",
