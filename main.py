@@ -5,6 +5,7 @@ Optimized by Grok 4 Heavy for multi-viewport support, URL processing, and n8n in
 
 import fitz  # PyMuPDF
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Query
+from fastapi.responses import JSONResponse
 import logging
 import re
 from typing import List, Dict, Any, Optional
@@ -36,7 +37,7 @@ UNIT_PATTERNS = [
     r"alle\s+maten\s+in\s+(mm|cm|m)",
     r"all\s+dimensions\s+in\s+(mm|cm|m)"
 ]
-STANDARD_LINE_WIDTHS = [0.5, 1.0, 1.5, 2.0, 3.0]  # Common line widths in mm (sectie 6.2)
+STANDARD_LINE_WIDTHS = [0.5, 1.0, 1.5, 2.0, 3.0]  # Common line widths in mm
 
 # Supabase client
 supabase_client = supabase.create_client(
@@ -148,8 +149,7 @@ class MemoryMonitor:
         try:
             import psutil
             process = psutil.Process(os.getpid())
-            memory_info = process.memory_info()
-            return memory_info.rss / 1024 / 1024
+            return process.memory_info().rss / 1024 / 1024
         except ImportError:
             return 0
 
@@ -202,7 +202,8 @@ def extract_vectors_cached(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
                 "total_texts": 0,
                 "total_viewports": 0,
                 "file_size_mb": round(len(pdf_bytes) / (1024 * 1024), 2),
-                "processing_time_ms": 0
+                "processing_time_ms": 0,
+                "unit_consistency": True
             }
         }
 
@@ -219,6 +220,7 @@ def extract_vectors_cached(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
             viewports = detect_viewports(page, text_dict["blocks"])
 
             lines, rectangles, curves = [], [], []
+            units = []
             for path in page.get_drawings():
                 for item in path["items"]:
                     item_type = item[0]
@@ -287,7 +289,6 @@ def extract_vectors_cached(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
                         curves.append(curve_data)
 
             texts = []
-            units = []
             for block in text_dict["blocks"]:
                 if "lines" in block:
                     for line in block["lines"]:
@@ -317,6 +318,8 @@ def extract_vectors_cached(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
                             texts.append(text_data)
 
             unit_consistency = len(set(units)) <= 1 if units else True
+            if not unit_consistency:
+                output["summary"]["unit_consistency"] = False
             page_data = {
                 "page_number": page_num + 1,
                 "page_size": {
@@ -342,13 +345,20 @@ def extract_vectors_cached(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
             output["summary"]["total_curves"] += len(curves)
             output["summary"]["total_texts"] += len(texts)
             output["summary"]["total_viewports"] += len(viewports)
-            output["summary"]["unit_consistency"] = unit_consistency
 
             logger.info(f"Page {page_num + 1} processed: {len(lines)} lines, {len(rectangles)} rectangles, "
                        f"{len(texts)} texts, {len(viewports)} viewports, unit_consistency: {unit_consistency}")
 
         output["summary"]["processing_time_ms"] = int((time.time() - start_time) * 1000)
         return output
+
+    except Exception as e:
+        logger.error(f"Error in extract_vectors_cached: {e}", exc_info=True)
+        raise
+
+    finally:
+        if "pdf_document" in locals():
+            pdf_document.close()
 
 @app.post("/extract-vectors/")
 async def extract_vectors(file: UploadFile = File(...)):
@@ -400,8 +410,6 @@ async def extract_vectors_from_urls(urls: List[UrlRequest]):
                 logger.warning(f"Page {url_request.page_number} does not exist in PDF from URL: {url_request.url}")
                 continue
 
-            # Process only the specified page
-            page = pdf_document[url_request.page_number - 1]
             output = extract_vectors_cached(pdf_bytes=tuple(pdf_bytes), filename=str(url_request.url))
             output = {
                 "url": str(url_request.url),
@@ -429,7 +437,7 @@ async def extract_vectors_from_urls(urls: List[UrlRequest]):
 
 @app.post("/batch-extract-vectors/", response_model=List[Dict[str, Any]])
 async def batch_extract_vectors(files: List[UploadFile] = File(...)):
-    """Extract vectors from multiple PDFs"""
+    """Extract vectors from multiple PDF files"""
     results = []
     for file in files:
         if file.content_type != "application/pdf":
