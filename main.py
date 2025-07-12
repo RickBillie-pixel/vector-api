@@ -17,9 +17,8 @@ import os
 from shapely.geometry import box, Point
 from sklearn.cluster import DBSCAN
 from functools import lru_cache
-import supabase
-import json
 import requests
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -38,12 +37,6 @@ UNIT_PATTERNS = [
     r"all\s+dimensions\s+in\s+(mm|cm|m)"
 ]
 STANDARD_LINE_WIDTHS = [0.5, 1.0, 1.5, 2.0, 3.0]  # Common line widths in mm
-
-# Supabase client
-supabase_client = supabase.create_client(
-    os.environ.get("SUPABASE_URL", ""),
-    os.environ.get("SUPABASE_KEY", "")
-)
 
 # Utility functions
 def point_to_dict(p) -> dict:
@@ -149,14 +142,15 @@ class MemoryMonitor:
         try:
             import psutil
             process = psutil.Process(os.getpid())
-            return process.memory_info().rss / 1024 / 1024
+            memory_info = process.memory_info()
+            return memory_info.rss / 1024 / 1024
         except ImportError:
             return 0
 
 app = FastAPI(
     title="Vector Extraction API",
     description="Extracts raw vector data, text, and viewports from PDF files or URLs",
-    version="4.3.0",
+    version="4.4.0",
 )
 
 class VectorCheckResponse(BaseModel):
@@ -350,6 +344,9 @@ def extract_vectors_cached(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
                        f"{len(texts)} texts, {len(viewports)} viewports, unit_consistency: {unit_consistency}")
 
         output["summary"]["processing_time_ms"] = int((time.time() - start_time) * 1000)
+        with open("vector_results.jsonl", "a") as f:
+            f.write(json.dumps({"filename": filename, "data": output, "timestamp": datetime.now().isoformat()}) + "\n")
+
         return output
 
     except Exception as e:
@@ -373,15 +370,6 @@ async def extract_vectors(file: UploadFile = File(...)):
             raise ValueError("Empty PDF file")
 
         output = extract_vectors_cached(pdf_bytes=tuple(pdf_bytes), filename=file.filename)
-        try:
-            supabase_client.table("vector_data").insert({
-                "filename": file.filename,
-                "data": output,
-                "timestamp": datetime.now().isoformat()
-            }).execute()
-        except Exception as e:
-            logger.error(f"Error saving to Supabase: {e}")
-
         return output
 
     except Exception as e:
@@ -418,14 +406,6 @@ async def extract_vectors_from_urls(urls: List[UrlRequest]):
             }
             if output["data"]:
                 results.append(output)
-                try:
-                    supabase_client.table("vector_data").insert({
-                        "filename": str(url_request.url),
-                        "data": output,
-                        "timestamp": datetime.now().isoformat()
-                    }).execute()
-                except Exception as e:
-                    logger.error(f"Error saving to Supabase: {e}")
             else:
                 logger.warning(f"No data extracted for page {url_request.page_number} from URL: {url_request.url}")
 
@@ -449,14 +429,6 @@ async def batch_extract_vectors(files: List[UploadFile] = File(...)):
                 continue
             output = extract_vectors_cached(pdf_bytes=tuple(pdf_bytes), filename=file.filename)
             results.append(output)
-            try:
-                supabase_client.table("vector_data").insert({
-                    "filename": file.filename,
-                    "data": output,
-                    "timestamp": datetime.now().isoformat()
-                }).execute()
-            except Exception as e:
-                logger.error(f"Error saving to Supabase: {e}")
         except Exception as e:
             logger.error(f"Error processing {file.filename}: {e}")
     return results
@@ -601,15 +573,13 @@ async def force_viewport(file: UploadFile = File(...), request: ForceViewportReq
                     "unit_consistency": unit_consistency
                 })
 
-        try:
-            supabase_client.table("viewport_overrides").insert({
+        with open("viewport_overrides.jsonl", "a") as f:
+            f.write(json.dumps({
                 "viewport_id": request.viewport_id,
                 "bbox": request.bbox,
                 "filename": file.filename,
                 "timestamp": datetime.now().isoformat()
-            }).execute()
-        except Exception as e:
-            logger.error(f"Error saving to Supabase: {e}")
+            }) + "\n")
 
         return output
 
@@ -622,7 +592,7 @@ async def root():
     """Root endpoint"""
     return {
         "message": "Vector Extraction API - Pure Data Extraction with Viewport and URL Support",
-        "version": "4.3.0",
+        "version": "4.4.0",
         "endpoints": {
             "/extract-vectors/": "Extract raw vector data and viewports from PDF file",
             "/extract-vectors-from-urls/": "Extract raw vector data and viewports from PDF URLs",
