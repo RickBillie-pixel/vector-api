@@ -1,6 +1,0 @@
-poppler-utils
-libpoppler-dev
-libjpeg-dev
-libpng-dev
-zlib1g-dev
-libfreetype6-dev
